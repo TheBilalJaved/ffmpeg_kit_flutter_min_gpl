@@ -154,14 +154,65 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
     }
 
     @SuppressWarnings("deprecation")
-    public static void registerWith(final io.flutter.plugin.common.PluginRegistry.Registrar registrar) {
-        final Context context = (registrar.activity() != null) ? registrar.activity() : registrar.context();
-        if (context == null) {
-            Log.w(LIBRARY_NAME, "FFmpegKitFlutterPlugin can not be registered without a context.");
+    public void init(final BinaryMessenger messenger, final Context context, final Activity activity, final ActivityPluginBinding activityBinding) {
+        registerGlobalCallbacks();
+
+        if (methodChannel == null) {
+            methodChannel = new MethodChannel(messenger, METHOD_CHANNEL);
+            methodChannel.setMethodCallHandler(this);
+        } else {
+            Log.i(LIBRARY_NAME, "FFmpegKitFlutterPlugin method channel was already initialised.");
+        }
+
+        if (eventChannel == null) {
+            eventChannel = new EventChannel(messenger, EVENT_CHANNEL);
+            eventChannel.setStreamHandler(this);
+        } else {
+            Log.i(LIBRARY_NAME, "FFmpegKitFlutterPlugin event channel was already initialised.");
+        }
+
+        this.context = context;
+        this.activity = activity;
+        this.activityPluginBinding = activityBinding;
+
+        if (activityBinding != null) {
+            activityBinding.addActivityResultListener(this);
+        }
+
+        Log.d(LIBRARY_NAME, String.format("FFmpegKitFlutterPlugin %s initialised with context %s and activity %s.", this, context, activity));
+    }
+
+    protected void uninit() {
+        uninitMethodChannel();
+        uninitEventChannel();
+
+        if (this.activityPluginBinding != null) {
+            this.activityPluginBinding.removeActivityResultListener(this);
+        }
+
+        this.context = null;
+        this.activity = null;
+        this.activityPluginBinding = null;
+
+        Log.d(LIBRARY_NAME, "FFmpegKitFlutterPlugin uninitialized.");
+    }
+
+    protected void uninitMethodChannel() {
+        if (methodChannel == null) {
+            Log.i(LIBRARY_NAME, "FFmpegKitFlutterPlugin method channel was already uninitialised.");
             return;
         }
-        FFmpegKitFlutterPlugin plugin = new FFmpegKitFlutterPlugin();
-        plugin.init(registrar.messenger(), context, registrar.activity(), registrar, null);
+        methodChannel.setMethodCallHandler(null);
+        methodChannel = null;
+    }
+
+    protected void uninitEventChannel() {
+        if (eventChannel == null) {
+            Log.i(LIBRARY_NAME, "FFmpegKitFlutterPlugin event channel was already uninitialised.");
+            return;
+        }
+        eventChannel.setStreamHandler(null);
+        eventChannel = null;
     }
 
     protected void registerGlobalCallbacks() {
@@ -195,7 +246,7 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
     @Override
     public void onAttachedToActivity(@NonNull ActivityPluginBinding activityPluginBinding) {
         Log.d(LIBRARY_NAME, String.format("FFmpegKitFlutterPlugin %s attached to activity %s.", this, activityPluginBinding.getActivity()));
-        init(flutterPluginBinding.getBinaryMessenger(), flutterPluginBinding.getApplicationContext(), activityPluginBinding.getActivity(), null, activityPluginBinding);
+        init(flutterPluginBinding.getBinaryMessenger(), flutterPluginBinding.getApplicationContext(), activityPluginBinding.getActivity(), activityPluginBinding);
     }
 
     @Override
@@ -647,75 +698,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
         }
     }
 
-    @SuppressWarnings("deprecation")
-    protected void init(final BinaryMessenger messenger, final Context context, final Activity activity, final io.flutter.plugin.common.PluginRegistry.Registrar registrar, final ActivityPluginBinding activityBinding) {
-        registerGlobalCallbacks();
-
-        if (methodChannel == null) {
-            methodChannel = new MethodChannel(messenger, METHOD_CHANNEL);
-            methodChannel.setMethodCallHandler(this);
-        } else {
-            Log.i(LIBRARY_NAME, "FFmpegKitFlutterPlugin method channel was already initialised.");
-        }
-
-        if (eventChannel == null) {
-            eventChannel = new EventChannel(messenger, EVENT_CHANNEL);
-            eventChannel.setStreamHandler(this);
-        } else {
-            Log.i(LIBRARY_NAME, "FFmpegKitFlutterPlugin event channel was already initialised.");
-        }
-
-        this.context = context;
-        this.activity = activity;
-
-        if (registrar != null) {
-            // V1 embedding setup for activity listeners.
-            registrar.addActivityResultListener(this);
-        } else {
-            // V2 embedding setup for activity listeners.
-            activityBinding.addActivityResultListener(this);
-        }
-
-        Log.d(LIBRARY_NAME, String.format("FFmpegKitFlutterPlugin %s initialised with context %s and activity %s.", this, context, activity));
-    }
-
-    protected void uninit() {
-        uninitMethodChannel();
-        uninitEventChannel();
-
-        if (this.activityPluginBinding != null) {
-            this.activityPluginBinding.removeActivityResultListener(this);
-        }
-
-        this.context = null;
-        this.activity = null;
-        this.activityPluginBinding = null;
-
-        Log.d(LIBRARY_NAME, "FFmpegKitFlutterPlugin uninitialized.");
-    }
-
-    protected void uninitMethodChannel() {
-        if (methodChannel == null) {
-            Log.i(LIBRARY_NAME, "FFmpegKitFlutterPlugin method channel was already uninitialised.");
-            return;
-        }
-
-        methodChannel.setMethodCallHandler(null);
-        methodChannel = null;
-    }
-
-    protected void uninitEventChannel() {
-        if (eventChannel == null) {
-            Log.i(LIBRARY_NAME, "FFmpegKitFlutterPlugin event channel was already uninitialised.");
-            return;
-        }
-
-        eventChannel.setStreamHandler(null);
-        eventChannel = null;
-    }
-
-    // AbstractSession
-
     protected void abstractSessionGetEndTime(@NonNull final Integer sessionId, @NonNull final Result result) {
         final Session session = FFmpegKitConfig.getSession(sessionId.longValue());
         if (session == null) {
@@ -822,13 +804,9 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
         }
     }
 
-    // ArchDetect
-
     protected void getArch(@NonNull final Result result) {
         resultHandler.successAsync(result, AbiDetect.getAbi());
     }
-
-    // FFmpegSession
 
     protected void ffmpegSession(@NonNull final List<String> arguments, @NonNull final Result result) {
         final FFmpegSession session = FFmpegSession.create(arguments.toArray(new String[0]), null, null, null, LogRedirectionStrategy.NEVER_PRINT_LOGS);
@@ -869,14 +847,10 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
         }
     }
 
-    // FFprobeSession
-
     protected void ffprobeSession(@NonNull final List<String> arguments, @NonNull final Result result) {
         final FFprobeSession session = FFprobeSession.create(arguments.toArray(new String[0]), null, null, LogRedirectionStrategy.NEVER_PRINT_LOGS);
         resultHandler.successAsync(result, toMap(session));
     }
-
-    // MediaInformationSession
 
     protected void mediaInformationSession(@NonNull final List<String> arguments, @NonNull final Result result) {
         final MediaInformationSession session = MediaInformationSession.create(arguments.toArray(new String[0]), null, null);
@@ -891,23 +865,20 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
             if (session.isMediaInformation()) {
                 final MediaInformationSession mediaInformationSession = (MediaInformationSession) session;
                 final MediaInformation mediaInformation = mediaInformationSession.getMediaInformation();
-                resultHandler.successAsync(result, toMap(mediaInformation));
+                if (mediaInformation != null) {
+                    resultHandler.successAsync(result, toMap(mediaInformation));
+                } else {
+                    resultHandler.successAsync(result, null);
+                }
             } else {
                 resultHandler.errorAsync(result, "NOT_MEDIA_INFORMATION_SESSION", "A session is found but it does not have the correct type.");
             }
         }
     }
 
-    // MediaInformationJsonParser
-
     protected void mediaInformationJsonParserFrom(@NonNull final String ffprobeJsonOutput, @NonNull final Result result) {
-        try {
-            final MediaInformation mediaInformation = MediaInformationJsonParser.fromWithError(ffprobeJsonOutput);
-            resultHandler.successAsync(result, toMap(mediaInformation));
-        } catch (final JSONException e) {
-            Log.i(LIBRARY_NAME, "Parsing MediaInformation failed.", e);
-            resultHandler.successAsync(result, null);
-        }
+        final MediaInformation mediaInformation = MediaInformationJsonParser.from(ffprobeJsonOutput);
+        resultHandler.successAsync(result, toMap(mediaInformation));
     }
 
     protected void mediaInformationJsonParserFromWithError(@NonNull final String ffprobeJsonOutput, @NonNull final Result result) {
@@ -920,49 +891,40 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
         }
     }
 
-    // FFmpegKitConfig
-
     protected void enableRedirection(@NonNull final Result result) {
         enableLogs();
         enableStatistics();
         FFmpegKitConfig.enableRedirection();
-
         resultHandler.successAsync(result, null);
     }
 
     protected void disableRedirection(@NonNull final Result result) {
         FFmpegKitConfig.disableRedirection();
-
         resultHandler.successAsync(result, null);
     }
 
     protected void enableLogs(@NonNull final Result result) {
         enableLogs();
-
         resultHandler.successAsync(result, null);
     }
 
     protected void disableLogs(@NonNull final Result result) {
         disableLogs();
-
         resultHandler.successAsync(result, null);
     }
 
     protected void enableStatistics(@NonNull final Result result) {
         enableStatistics();
-
         resultHandler.successAsync(result, null);
     }
 
     protected void disableStatistics(@NonNull final Result result) {
         disableStatistics();
-
         resultHandler.successAsync(result, null);
     }
 
     protected void setFontconfigConfigurationPath(@NonNull final String path, @NonNull final Result result) {
         FFmpegKitConfig.setFontconfigConfigurationPath(path);
-
         resultHandler.successAsync(result, null);
     }
 
@@ -997,7 +959,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
 
     protected void closeFFmpegPipe(@NonNull final String ffmpegPipePath, @NonNull final Result result) {
         FFmpegKitConfig.closeFFmpegPipe(ffmpegPipePath);
-
         resultHandler.successAsync(result, null);
     }
 
@@ -1015,13 +976,11 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
 
     protected void setEnvironmentVariable(@NonNull final String variableName, @NonNull final String variableValue, @NonNull final Result result) {
         FFmpegKitConfig.setEnvironmentVariable(variableName, variableValue);
-
         resultHandler.successAsync(result, null);
     }
 
     protected void ignoreSignal(@NonNull final Integer signalIndex, @NonNull final Result result) {
         Signal signal = null;
-
         if (signalIndex == Signal.SIGINT.ordinal()) {
             signal = Signal.SIGINT;
         } else if (signalIndex == Signal.SIGQUIT.ordinal()) {
@@ -1036,7 +995,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
 
         if (signal != null) {
             FFmpegKitConfig.ignoreSignal(signal);
-
             resultHandler.successAsync(result, null);
         } else {
             resultHandler.errorAsync(result, "INVALID_SIGNAL", "Signal value not supported.");
@@ -1275,9 +1233,7 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
                 resultHandler.errorAsync(result, "GET_SAF_PARAMETER_FAILED", "Uri string cannot be parsed.");
             } else {
                 final String safParameter = FFmpegKitConfig.getSafParameter(context, uri, openMode);
-
                 Log.d(LIBRARY_NAME, String.format("getSafParameter using parameters uriString: %s, openMode: %s completed with saf parameter: %s.", uriString, openMode, safParameter));
-
                 resultHandler.successAsync(result, safParameter);
             }
         } else {
@@ -1285,8 +1241,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
             resultHandler.errorAsync(result, "INVALID_CONTEXT", "Context is null.");
         }
     }
-
-    // FFmpegKit
 
     protected void cancel(@NonNull final Result result) {
         FFmpegKit.cancel();
@@ -1302,8 +1256,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
         resultHandler.successAsync(result, toSessionMapList(FFmpegKit.listSessions()));
     }
 
-    // FFprobeKit
-
     protected void getFFprobeSessions(@NonNull final Result result) {
         resultHandler.successAsync(result, toSessionMapList(FFprobeKit.listFFprobeSessions()));
     }
@@ -1311,8 +1263,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
     protected void getMediaInformationSessions(@NonNull final Result result) {
         resultHandler.successAsync(result, toSessionMapList(FFprobeKit.listMediaInformationSessions()));
     }
-
-    // Packages
 
     protected void getPackageName(@NonNull final Result result) {
         resultHandler.successAsync(result, Packages.getPackageName());
@@ -1346,7 +1296,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
         if (session == null) {
             return null;
         }
-
         final Map<String, Object> sessionMap = new HashMap<>();
 
         sessionMap.put(KEY_SESSION_ID, session.getSessionId());
@@ -1366,7 +1315,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
             }
             sessionMap.put(KEY_SESSION_TYPE, SESSION_TYPE_MEDIA_INFORMATION);
         }
-
         return sessionMap;
     }
 
@@ -1426,11 +1374,9 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
 
     protected static Map<String, Object> toMap(final com.arthenica.ffmpegkit.Log log) {
         final HashMap<String, Object> logMap = new HashMap<>();
-
         logMap.put(KEY_LOG_SESSION_ID, log.getSessionId());
         logMap.put(KEY_LOG_LEVEL, toInt(log.getLevel()));
         logMap.put(KEY_LOG_MESSAGE, log.getMessage());
-
         return logMap;
     }
 
@@ -1447,7 +1393,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
             statisticsMap.put(KEY_STATISTICS_BITRATE, statistics.getBitrate());
             statisticsMap.put(KEY_STATISTICS_SPEED, statistics.getSpeed());
         }
-
         return statisticsMap;
     }
 
@@ -1461,7 +1406,6 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
                     map = toMap(allProperties);
                 }
             }
-
             return map;
         } else {
             return null;
@@ -1486,13 +1430,11 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
                 }
             }
         }
-
         return map;
     }
 
     protected static List<Object> toList(final JSONArray array) {
         final List<Object> list = new ArrayList<>();
-
         for (int i = 0; i < array.length(); i++) {
             Object value = array.opt(i);
             if (value != null) {
@@ -1504,37 +1446,30 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
                 list.add(value);
             }
         }
-
         return list;
     }
 
     protected static List<Map<String, Object>> toSessionMapList(final List<? extends Session> sessionList) {
         final List<Map<String, Object>> list = new ArrayList<>();
-
         for (int i = 0; i < sessionList.size(); i++) {
             list.add(toMap(sessionList.get(i)));
         }
-
         return list;
     }
 
     protected static List<Map<String, Object>> toLogMapList(final List<com.arthenica.ffmpegkit.Log> logList) {
         final List<Map<String, Object>> list = new ArrayList<>();
-
         for (int i = 0; i < logList.size(); i++) {
             list.add(toMap(logList.get(i)));
         }
-
         return list;
     }
 
     protected static List<Map<String, Object>> toStatisticsMapList(final List<com.arthenica.ffmpegkit.Statistics> statisticsList) {
         final List<Map<String, Object>> list = new ArrayList<>();
-
         for (int i = 0; i < statisticsList.size(); i++) {
             list.add(toMap(statisticsList.get(i)));
         }
-
         return list;
     }
 
@@ -1559,5 +1494,4 @@ public class FFmpegKitFlutterPlugin implements FlutterPlugin, ActivityAware, Met
         sessionMap.put(EVENT_COMPLETE_CALLBACK_EVENT, toMap(session));
         resultHandler.successAsync(eventSink, sessionMap);
     }
-
 }
